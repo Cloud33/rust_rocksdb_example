@@ -21,12 +21,15 @@ fn main() {
       
        let cf1=  db.cf_handle("cf1").unwrap();
        db.put_cf(&cf1,b"my key", b"my value2").unwrap();
-       match db.get_cf(&cf1,b"my key") {
-           Ok(Some(value)) => println!("retrieved value {:?}", String::from_utf8(value).unwrap()),
+       match db.get_pinned_cf(&cf1,b"my key") {
+           Ok(Some(value)) => {
+            println!("retrieved value {:?}", String::from_utf8(value.as_ref().to_vec()).unwrap());
+            drop(value);
+           },
            Ok(None) => println!("value not found"),
            Err(e) => println!("operational problem encountered: {}", e),
        }
-       db.delete_cf(&cf1.clone(),b"my key").unwrap();
+       db.delete_cf(&cf1,b"my key").unwrap();
     }
     let _ = DB::destroy(&Options::default(), path);
 }
