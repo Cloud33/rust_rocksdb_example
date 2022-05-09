@@ -7,4 +7,4 @@ edition = "2021"
 
 [dependencies]
 rocksdb = { version = "0.18.0", features = ["multi-threaded-cf"]}
-
+rs-snowflake = "*"
