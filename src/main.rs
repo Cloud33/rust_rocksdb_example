@@ -17,18 +17,19 @@ fn main() {
     }
     
     let mut rt = tokio::runtime::Runtime::new().unwrap();
-    let task1=  rt.spawn(async {
-        println!("1 {}", IdInstance::next_id());
-        println!("1 {}", IdInstance::next_id());
-        println!("1 {}", IdInstance::next_id());
-        println!("1 {}", IdInstance::next_id());
-    });
-    let task2= rt.spawn(async {
-        println!("2 {}", IdInstance::next_id());
-        println!("2 {}", IdInstance::next_id());
-        println!("2 {}", IdInstance::next_id());
-        println!("2 {}", IdInstance::next_id());
-    });
+
+    for i in 0..10 {
+        rt.spawn(async move {
+            let id = IdInstance::next_id();
+            println!("{} {} - {}",i, id, IdInstance::format(id));
+            let id = IdInstance::next_id();
+            println!("{} {} - {}",i, id, IdInstance::format(id));
+            let id = IdInstance::next_id();
+            println!("{} {} - {}",i, id, IdInstance::format(id));
+            let id = IdInstance::next_id();
+            println!("{} {} - {}",i, id, IdInstance::format(id));
+        });
+    }
     rt.handle();
   
     
