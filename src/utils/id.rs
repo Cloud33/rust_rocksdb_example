@@ -5,6 +5,8 @@ use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
 use chrono::{DateTime,Utc,Local,TimeZone}; 
 
+/// 引用：https://crates.io/crates/idgenerator
+/// 引用：https://crates.io/crates/rs-snowflake
 /// 请确保machine_id和node_id小于32
 pub struct IdGeneratorOptions{
     /// machine_id, is use to supplement id machine or sectionalization attribute.
