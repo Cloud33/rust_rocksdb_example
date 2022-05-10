@@ -1,12 +1,12 @@
 use std::hint::spin_loop;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH,Duration};
 use once_cell::sync::OnceCell;
 use parking_lot::{Mutex, RwLock};
 use std::sync::Arc;
+use chrono::{DateTime,Utc,Local,TimeZone}; 
 
 /// 请确保machine_id和node_id小于32
 pub struct IdGeneratorOptions{
-    pub epoch: Option<SystemTime>,
     /// machine_id, is use to supplement id machine or sectionalization attribute.
     pub machine_id: i32,
     /// node_id, is use to supplement id machine-node attribute.
@@ -16,7 +16,6 @@ pub struct IdGeneratorOptions{
 impl IdGeneratorOptions {
     pub fn new() -> Self {
         IdGeneratorOptions {
-            epoch: None,
             machine_id: 1,
             node_id: 1,
         }
@@ -24,11 +23,6 @@ impl IdGeneratorOptions {
     /// 机器Id  [1..31]
     pub fn machine_id(mut self, machine_id: i32) -> Self {
         self.machine_id = machine_id;
-        self
-    }
-    /// 生成的开始时间， 少于当前时间，保持不变
-    pub fn epoch(mut self, epoch: SystemTime) -> Self {
-        self.epoch = Some(epoch);
         self
     }
     /// 节点Id  [1..31]
@@ -53,7 +47,9 @@ pub struct IdInstance;
 impl IdInstance {
     /// Initialize the instance
     pub fn init(option: IdGeneratorOptions) {
-        IdInstance::get_instance().lock().init(option)
+        let dt = Utc.ymd(2022, 1, 1).and_hms_milli(0, 0, 0, 0);
+        let discord_epoch = UNIX_EPOCH + Duration::from_millis(dt.timestamp_millis() as u64);
+        IdInstance::get_instance().lock().init(option,discord_epoch)
     }
 
     /// Get a unique id
@@ -61,10 +57,24 @@ impl IdInstance {
         IdInstance::get_instance().lock().lazy_generate()
     }
 
+    pub fn format(id: i64) -> String{
+        let timestamp = id >> 22;
+        let dt2: DateTime<Local> = Local.timestamp_millis(timestamp+ Self::get_epoct());
+        //println!("{}", dt2.format("%Y-%m-%d %H:%M:%S"));
+        dt2.format("%y%m%d").to_string()
+    }
+
     fn get_instance() -> &'static Mutex<SnowflakeIdGenerator> {
         static INSTANCE: OnceCell<Mutex<SnowflakeIdGenerator>> = OnceCell::new();
      
         INSTANCE.get_or_init(|| Mutex::new(SnowflakeIdGenerator::default()))
+    }
+
+    fn get_epoct() -> &'static i64 {
+        static INSTANCE: OnceCell<i64> = OnceCell::new();
+        INSTANCE.get_or_init(|| {
+            Utc.ymd(2022, 1, 1).and_hms_milli(0, 0, 0, 0).timestamp_millis()
+        })
     }
 }
 
@@ -85,11 +95,13 @@ impl IdVecInstance {
     ///
     /// Every time you call this function will drop all the previous generators in the instance.
     pub fn init(mut options: Vec<IdGeneratorOptions>)  {
+        let dt = Utc.ymd(2022, 1, 1).and_hms_milli(0, 0, 0, 0);
+        let discord_epoch = UNIX_EPOCH + Duration::from_millis(dt.timestamp_millis() as u64);
         let mut instances = IdVecInstance::get_instance().write();
         instances.clear();
         for option in options.drain(..) {
             let mut instance = SnowflakeIdGenerator::default();
-            instance.init(option);
+            instance.init(option,discord_epoch.clone());
             instances.push(Arc::new(Mutex::new(instance)));
         }
     }
@@ -105,9 +117,23 @@ impl IdVecInstance {
         id
     }
 
+    pub fn format(id: i64) -> String{
+        let timestamp = id >> 22;
+        let dt2: DateTime<Local> = Local.timestamp_millis(timestamp+ Self::get_epoct());
+        println!("{}", dt2.format("%Y-%m-%d %H:%M:%S"));
+        dt2.format("%y%m%d").to_string()
+    }
+
     fn get_instance() -> &'static RwLock<Vec<Arc<Mutex<SnowflakeIdGenerator>>>> {
         static INSTANCE: OnceCell<RwLock<Vec<Arc<Mutex<SnowflakeIdGenerator>>>>> = OnceCell::new();
         INSTANCE.get_or_init(|| RwLock::new(Vec::new()))
+    }
+
+    fn get_epoct() -> &'static i64 {
+        static INSTANCE: OnceCell<i64> = OnceCell::new();
+        INSTANCE.get_or_init(|| {
+            Utc.ymd(2022, 1, 1).and_hms_milli(0, 0, 0, 0).timestamp_millis()
+        })
     }
 }
 
@@ -136,10 +162,9 @@ impl IdVecInstance {
 
 impl Default for SnowflakeIdGenerator {
     fn default() -> Self {
-        let last_time_millis = get_time_millis(UNIX_EPOCH);
         SnowflakeIdGenerator {
             epoch: UNIX_EPOCH,
-            last_time_millis: last_time_millis,
+            last_time_millis: 0,
             machine_id: 1,
             node_id: 1,
             idx: 0,
@@ -150,10 +175,9 @@ impl Default for SnowflakeIdGenerator {
 
 impl SnowflakeIdGenerator {
     
-    fn init(&mut self,option: IdGeneratorOptions){
-        if option.epoch.is_some(){
-            self.last_time_millis= get_time_millis(option.epoch.unwrap());
-        }
+    fn init(&mut self,option: IdGeneratorOptions,epoch: SystemTime){
+        self.epoch = epoch;
+        self.last_time_millis= get_time_millis(self.epoch);
         self.machine_id = option.machine_id;
         self.node_id = option.node_id;
     }

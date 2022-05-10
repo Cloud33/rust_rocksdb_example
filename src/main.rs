@@ -7,23 +7,13 @@ use tokio::*;
 
 fn main() {
 
-    let dt = Utc.ymd(2022, 1, 1).and_hms_milli(0, 0, 0, 0);
-    let discord_epoch = UNIX_EPOCH + Duration::from_millis(dt.timestamp_millis() as u64);
-    let options = IdGeneratorOptions::new().machine_id(1).node_id(1).epoch(discord_epoch);
+    let options = IdGeneratorOptions::new().machine_id(1).node_id(1);
     let _ = IdInstance::init(options);
 
     {
         let id =IdInstance::next_id();
         println!("{id}");
-        let timestamp = id >> 22;
-        let system_time = discord_epoch.add(Duration::from_millis(timestamp as u64));
-        let datetime:DateTime<Local> = system_time.into(); 
-        println!("{:?}",system_time);
-        println!("{}", datetime.format("%y%m%d")); //220510
-    
-        let dt2: DateTime<Local> = Local.timestamp_millis(timestamp+dt.timestamp_millis());
-        println!("{}", dt2.format("%y%m%d"));
-        println!("{}", dt2.format("%Y-%m-%d %H:%M:%S"));
+        println!("{}",IdInstance::format(id));
     }
     
     let mut rt = tokio::runtime::Runtime::new().unwrap();
