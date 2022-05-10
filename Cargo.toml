@@ -8,3 +8,7 @@ edition = "2021"
 [dependencies]
 rocksdb = { version = "0.18.0", features = ["multi-threaded-cf"]}
 rs-snowflake = "*"
+chrono = "0.4.19"
+tokio = { version = "1", features = ["full"] }
+once_cell = "*"
+parking_lot = "*"
