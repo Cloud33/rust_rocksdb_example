@@ -1,7 +1,7 @@
 use std::hint::spin_loop;
 use std::time::{SystemTime, UNIX_EPOCH,Duration};
 use once_cell::sync::OnceCell;
-use parking_lot::{Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 use std::sync::Arc;
 use chrono::{DateTime,Utc,Local,TimeZone}; 
 
@@ -36,14 +36,6 @@ impl IdGeneratorOptions {
 
 /// Constructs a new `IdInstance` using the UNIX epoch.
 /// Please make sure that machine_id and node_id is small than 32(2^5);
-///
-/// # Examples
-///
-/// ```
-/// let options = IdGeneratorOptions::new().machine_id(1).node_id(1);
-/// let _ = IdInstance::init(options);
-/// let id = IdInstance::next_id();
-/// ```
 pub struct IdInstance;
 
 impl IdInstance {
@@ -51,12 +43,12 @@ impl IdInstance {
     pub fn init(option: IdGeneratorOptions) {
         let dt = Utc.ymd(2022, 1, 1).and_hms_milli(0, 0, 0, 0);
         let discord_epoch = UNIX_EPOCH + Duration::from_millis(dt.timestamp_millis() as u64);
-        IdInstance::get_instance().lock().init(option,discord_epoch)
+        IdInstance::get_instance().lock().expect("init id mutex poisoned").init(option,discord_epoch)
     }
 
     /// Get a unique id
     pub fn next_id() -> i64 {
-        IdInstance::get_instance().lock().lazy_generate()
+        IdInstance::get_instance().lock().expect("get id mutex poisoned").lazy_generate()
     }
 
     pub fn format(id: i64) -> String{
@@ -83,13 +75,6 @@ impl IdInstance {
 /// Instance of multiple generators contained in a vector
 /// Constructs a new `IdInstance` using the UNIX epoch.
 /// Please make sure that machine_id and node_id is small than 32(2^5);
-///
-/// # Examples
-///
-/// ```
-/// let _ = IdInstance::init(1,1,None);
-/// let id = IdInstance::next_id();
-/// ```
 pub struct IdVecInstance;
 
 impl IdVecInstance {
@@ -99,7 +84,7 @@ impl IdVecInstance {
     pub fn init(mut options: Vec<IdGeneratorOptions>)  {
         let dt = Utc.ymd(2022, 1, 1).and_hms_milli(0, 0, 0, 0);
         let discord_epoch = UNIX_EPOCH + Duration::from_millis(dt.timestamp_millis() as u64);
-        let mut instances = IdVecInstance::get_instance().write();
+        let mut instances = IdVecInstance::get_instance().write().expect("init id rwlock poisoned");
         instances.clear();
         for option in options.drain(..) {
             let mut instance = SnowflakeIdGenerator::default();
@@ -112,10 +97,10 @@ impl IdVecInstance {
         // Because this step matters the speed a lot,
         // so we won't check the index and let it panic
         let reader = {
-            let r = IdVecInstance::get_instance().read();
+            let r = IdVecInstance::get_instance().read().expect("get id rwlock poisoned");
             Arc::clone(&r[index])
         };
-        let id = reader.lock().lazy_generate();
+        let id = reader.lock().expect("get id mutex poisoned").lazy_generate();
         id
     }
 
@@ -269,5 +254,50 @@ fn biding_time_conditions(last_time_millis: i64, epoch: SystemTime) -> i64 {
             return latest_time_millis;
         }
         spin_loop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn id_test() {
+        let options = IdGeneratorOptions::new().machine_id(1).node_id(1);
+        let _ = IdInstance::init(options);
+        assert!(IdInstance::next_id()>0);
+    }
+    #[test]
+    fn id_format_test(){
+        let options = IdGeneratorOptions::new().machine_id(1).node_id(1);
+        let _ = IdInstance::init(options);
+        let id = IdInstance::next_id();
+        let dt: DateTime<Local> = SystemTime::now().into();
+        assert_eq!(IdInstance::format(id),dt.format("%y%m%d").to_string());
+    }
+    #[test]
+    fn idv_test(){
+        let options = vec![
+            IdGeneratorOptions::new().machine_id(1).node_id(1),
+            IdGeneratorOptions::new().machine_id(1).node_id(2),
+        ];
+        let _ = IdVecInstance::init(options);
+
+        assert!(IdVecInstance::next_id(0)>0);
+        assert!(IdVecInstance::next_id(1)>0);
+    }
+
+    #[test]
+    fn idv_format_test(){
+        let options = vec![
+            IdGeneratorOptions::new().machine_id(1).node_id(1),
+            IdGeneratorOptions::new().machine_id(1).node_id(2),
+        ];
+        let _ = IdVecInstance::init(options);
+        let id1 = IdVecInstance::next_id(0);
+        let id2 = IdVecInstance::next_id(1);
+        let dt: DateTime<Local> = SystemTime::now().into();
+        assert_eq!(IdVecInstance::format(id1),dt.format("%y%m%d").to_string());
+        assert_eq!(IdVecInstance::format(id2),dt.format("%y%m%d").to_string());
     }
 }

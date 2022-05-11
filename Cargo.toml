@@ -10,4 +10,3 @@ rocksdb = { version = "0.18.0", features = ["multi-threaded-cf"]}
 chrono = "0.4.19"
 tokio = { version = "1", features = ["full"] }
 once_cell = "*"
-parking_lot = "*"
