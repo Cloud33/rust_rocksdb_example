@@ -1,18 +1,13 @@
+
+use chrono::Local;
 use rocksdb::{DB,ColumnFamilyDescriptor,Options,ReadOptions,BlockBasedIndexType, BlockBasedOptions,Cache,DBCompressionType,IteratorMode,Direction};
-use rust_rocksdb_example::utils::id::*;
+
+use serde::{Deserialize,Serialize};
+use rust_rocksdb_example::utils::snowflake::ProcessUniqueId;
+
 
 fn main() {
-
-    // let options = IdGeneratorOptions::new().machine_id(1).node_id(1);
-    // let _ = IdInstance::init(options);
-    // let id = IdInstance::next_id();
-    // println!("{}",id);
-    // let str= IdInstance::format(id);
-    // println!("{}",str);
-    // let str= IdInstance::format(id);
-    // println!("{}",str);
-
-
+    let serverid = 1;
     let path = "_path_for_rocksdb_storage_with_cfs";
 
     let mut block_opts = BlockBasedOptions::default();
@@ -59,6 +54,9 @@ fn main() {
     cf_opts.set_max_write_buffer_number(4); // 设置内存中建立的最大写入缓冲区数。默认值和最小值为 2，因此当将 1 个写入缓冲区刷新到存储时，新写入操作可以继续写入另一个写入缓冲区。如果max_write_buffer_number > 3，则写入速度将减慢到options.delayed_write_rate如果我们写入允许的最后一个写入缓冲区。
     let cf2 = ColumnFamilyDescriptor::new("cf2", cf_opts);
 
+    let cf_opts = Options::default();
+    let cf3 = ColumnFamilyDescriptor::new("ids", cf_opts);
+
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true); //如果为 true，则将创建打开数据库时不存在的任何列系列。
     db_opts.create_if_missing(true); //如果为 true，则在缺少数据库时将创建数据库。
@@ -69,17 +67,67 @@ fn main() {
     db_opts.set_keep_log_file_num(1); //指定要保留的信息日志文件的最大数量。 默认值：1000
     db_opts.set_max_background_jobs(4); //设置并发后台作业（压缩和刷新）的最大数量。
     {
-       let db = DB::open_cf_descriptors(&db_opts, path, vec![cf1,cf2]).unwrap();
-     
+       let db = DB::open_cf_descriptors(&db_opts, path, vec![cf1,cf2,cf3]).unwrap();
+      
+    
+       let cf3=  db.cf_handle("ids").unwrap();
+       let iter = db.multi_get_cf(vec![(&cf3,b"cf1"),(&cf3,b"cf2")]);
+
+       let mut puts = Vec::new();
+       for result in iter {
+           match result {
+               Ok(result) => {
+                  match result {
+                      Some(result) => {
+                        let mut value = rmp_serde::from_slice::<IdValue>(&result).unwrap();
+                        let yy = Local::now().format("%Y%m%d").to_string();
+                        if value.yy == yy{
+                            //如果存在，step + 1
+                            value.step=value.step+1;
+                            puts.push(value);// update
+                        }
+                        else{
+                            //如果不存在，就添加
+                            puts.push(IdValue{ yy:yy,step:0});// add
+                        }
+                      },
+                      None => {
+                        let yy = Local::now().format("%Y%m%d").to_string();
+                        puts.push(IdValue{ yy:yy,step:0});// add
+                      },
+                  }
+               },
+               Err(err) => panic!("{}",err)
+
+           }
+       }
+       //检查数量是否合格
+       assert_eq!(puts.len(),2);
+
+       for value in puts{
+           println!("{}",value);
+       }
+
+
+    //   let mut value = IdValue{ yy: String::from("20220511"),step:1};
+    //   println!("{:?}",value);
+    //   let buf = rmp_serde::to_vec(&value).unwrap();
+    //     value.step=2;
+    //   println!("{:?}",buf);
+    //   let value2 = rmp_serde::from_slice::<IdValue>(&buf).unwrap();
+    //   println!("{:?}",value2);
+
+   
+
        let cf1=  db.cf_handle("cf1").unwrap();
        db.put_cf(&cf1,b"20220511_abc", "20220511_1").unwrap();
        db.put_cf(&cf1,b"20220511_abd", "20220511_2").unwrap();
        db.put_cf(&cf1,b"20220512_abc", "20220512_3").unwrap();
 
        let cf2=  db.cf_handle("cf2").unwrap();
-       db.put_cf(&cf2,b"20220511_abc", "20220511_1").unwrap();
-       db.put_cf(&cf2,b"20220511_abd", "20220511_2").unwrap();
-       db.put_cf(&cf2,b"20220512_abc", "20220512_3").unwrap();
+       db.put_cf(&cf2,b"1", "20220511_1").unwrap();
+       db.put_cf(&cf2,b"2", "20220511_2").unwrap();
+       db.put_cf(&cf2,b"3", "20220512_3").unwrap();
 
        let mut read_opts = ReadOptions::default();
        read_opts.set_verify_checksums(false);
@@ -107,7 +155,7 @@ fn main() {
        for (key, value) in iter {
           println!("Saw {} {:?}", String::from_utf8(key.to_vec()).unwrap(), String::from_utf8(value.to_vec()).unwrap());
        }
-        
+
        db.drop_cf("cf1").unwrap();
        db.drop_cf("cf2").unwrap();
     }
@@ -127,4 +175,27 @@ pub fn get_end_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
 	} else {
 		None
 	}
+}
+
+#[derive(Debug,Serialize,Deserialize)]
+pub struct IdValue{
+    yy: String,
+    step: u32,
+}
+
+impl std::fmt::Display for IdValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let step ={
+            if self.step >= 0 && self.step <= 9{
+                format!("00{}",self.step)
+            }
+            else if self.step >= 10 && self.step <= 99{
+                format!("0{}",self.step)
+            }
+            else{
+                self.step.to_string()
+            }
+        };
+        write!(f, "{}{}", self.yy, step)
+    }
 }
