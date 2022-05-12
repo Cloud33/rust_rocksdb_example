@@ -1,4 +1,5 @@
 
+use rocksdb::{DB,ColumnFamilyDescriptor,Options,ReadOptions,BlockBasedIndexType, BlockBasedOptions,Cache,DBCompressionType,IteratorMode,Direction};
 
 
 const KB: usize = 1_024;
@@ -10,3 +11,10 @@ pub const DB_DEFAULT_COLUMN_MEMORY_BUDGET_MB: usize = 128;
 /// The default memory budget in MiB.
 pub const DB_DEFAULT_MEMORY_BUDGET_MB: usize = 512;
 //pub struct 
+
+
+
+struct DBStore {
+    db: DB,
+    
+}

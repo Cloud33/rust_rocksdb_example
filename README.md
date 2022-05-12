@@ -27,4 +27,6 @@ id
 https://crates.io/crates/rs-snowflake
 
 
-
+### 结构
+https://www.cnblogs.com/yjmyzz/p/15586087.html
+https://github.com/paritytech/parity-common/blob/master/kvdb-rocksdb/src/lib.rs
