@@ -1,6 +1,17 @@
 use rocksdb::{DB,ColumnFamilyDescriptor,Options,ReadOptions,BlockBasedIndexType, BlockBasedOptions,Cache,DBCompressionType,IteratorMode,Direction};
+use rust_rocksdb_example::utils::id::*;
 
 fn main() {
+
+    // let options = IdGeneratorOptions::new().machine_id(1).node_id(1);
+    // let _ = IdInstance::init(options);
+    // let id = IdInstance::next_id();
+    // println!("{}",id);
+    // let str= IdInstance::format(id);
+    // println!("{}",str);
+    // let str= IdInstance::format(id);
+    // println!("{}",str);
+
 
     let path = "_path_for_rocksdb_storage_with_cfs";
 
