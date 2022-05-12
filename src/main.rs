@@ -104,11 +104,18 @@ fn main() {
        //检查数量是否合格
        assert_eq!(puts.len(),2);
 
+       //测试多线程Id生成
        for value in puts{
            println!("{}",value);
        }
 
-
+       let  rt = tokio::runtime::Runtime::new().unwrap();
+       for _ in 0..100 {
+           rt.spawn(async {
+                println!("{}",ProcessUniqueId::new());
+           });
+       }
+       rt.handle();
     //   let mut value = IdValue{ yy: String::from("20220511"),step:1};
     //   println!("{:?}",value);
     //   let buf = rmp_serde::to_vec(&value).unwrap();
