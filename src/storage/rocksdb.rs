@@ -1,8 +1,8 @@
 
 use rocksdb::{DB,ColumnFamilyDescriptor,Options,ReadOptions,WriteOptions,BlockBasedIndexType, BlockBasedOptions,Cache,DBCompressionType,FlushOptions,Error};
-use chrono::Local;
+use chrono::{Local, prelude::*};
 use crate::utils::snowflake::ProcessUniqueId;
-use std::{sync::atomic::{AtomicUsize,Ordering}, ops::Add};
+use std::{sync::atomic::{AtomicUsize,Ordering}, thread::sleep};
 
 //
 //https://doc.rust-lang.org/stable/std/mem/struct.ManuallyDrop.html
@@ -48,6 +48,7 @@ pub struct DBStore {
 
 
 impl DBStore {
+    // 打开数据库
     pub fn open(path: &str) ->Self{
         let block_opts = generate_block_based_options();
 
@@ -69,15 +70,22 @@ impl DBStore {
         println!("db open end");
         Self { db: db,user_write_opts:user_write_opts,write_opts:write_opts, sync_write_opts:sync_write_opts,read_opts:read_opts}
     }
+    // 初始化
+    pub fn init(&self){
+        self.handle_id()
+    }
 
+    pub fn flush(&self) -> Result<(), Error>{
+        let flush_opts = generate_flush_options();
+        let result= &self.db.flush_opt(&flush_opts);
+        result.clone()
+    }
+    // 获取 key
     pub fn get_key() -> String {
         format!("{}_{}",ID_PERFIX.load(Ordering::Relaxed),ProcessUniqueId::new())
     }
-
-    
-
-
-    pub fn init(&self){
+   
+    fn handle_id(&self){
         let config_cf = self.db.cf_handle(CONFIG_CF).unwrap();
         let yy = Local::now().format("%Y%m%d").to_string().parse::<usize>().unwrap();
         let value = self.db.get_pinned_cf(&config_cf,ID_KEY)
@@ -87,7 +95,7 @@ impl DBStore {
         //     Err(err) => IdValue { yy: yy, step: 0 }
         // };
 
-        let mut value = match value {
+        let value = match value {
             Some(mut v) => {
                 println!("get id value: {:?}",v);
                 v.step = v.step + 1;
@@ -101,20 +109,46 @@ impl DBStore {
         }
         println!("id value:  {:?}", value);
 
-        self.db.put_cf(&config_cf, ID_KEY, rmp_serde::to_vec(&value).unwrap()).unwrap();
+        self.db.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&value).unwrap(),&self.sync_write_opts).unwrap();
         //设置值
         ID_PERFIX_YY.store(value.yy,Ordering::Relaxed);
         ID_PERFIX_STPE.store(value.step,Ordering::Relaxed);
         let perfix = get_id_perfix();
         ID_PERFIX.store(perfix,Ordering::Relaxed);
+
+
+        
     }
 
-    pub fn flush(&self) -> Result<(), Error>{
-        let flush_opts = generate_flush_options();
-        let result= &self.db.flush_opt(&flush_opts);
-        result.clone()
+    fn id_refresh(db : DB,sync_write_opts: &WriteOptions){
+        let  rt = tokio::runtime::Runtime::new().unwrap();
+        rt.spawn(async move {
+            loop {
+                let current_date = Local::now();
+                println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
+                let future_date= current_date + chrono::Duration::days(1);
+                let end_time =Local.ymd(future_date.year(), future_date.month(), future_date.day()).and_hms_milli(0, 0, 0, 0);
+                println!("end_time:{}",end_time.format("%Y-%m-%d %H:%M:%S"));
+                let duration  = end_time - current_date;
+                println!("duration:{}",duration.num_seconds());
+                let current_date = current_date+ duration;
+                println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
+                drop(current_date);
+                drop(future_date);
+                tokio::time::sleep(duration.to_std().unwrap());
+                // 开始刷新
+                let yy = ID_PERFIX_YY.load(Ordering::Relaxed);
+                let id_value = IdValue { yy: yy+1, step: 0};
+                let config_cf = db.cf_handle(CONFIG_CF).unwrap();
+                //db.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&id_value).unwrap(),sync_write_opts).unwrap();
+                ID_PERFIX_YY.store(id_value.yy,Ordering::Relaxed);
+                let perfix = get_id_perfix();
+                ID_PERFIX.store(perfix,Ordering::Relaxed);
+            }
+        });
+        rt.handle();
+        sleep(std::time::Duration::from_secs(1));
     }
-   
 }
 
 impl Drop for DBStore {
