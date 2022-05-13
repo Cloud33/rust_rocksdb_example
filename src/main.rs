@@ -1,7 +1,7 @@
 use chrono::Local;
 use rocksdb::{Direction, IteratorMode, Options, ReadOptions, DB};
 
-use rust_rocksdb_example::storage::rocksdb::DBStore;
+use rust_rocksdb_example::storage::rocksdb::{DBStore, id_refresh};
 use serde::{Deserialize, Serialize};
 
 fn main() {
@@ -11,7 +11,7 @@ fn main() {
     let dbstore = DBStore::open(path);
     dbstore.init();
     {
-        let db = &dbstore.db;
+        let db = dbstore.db.clone();
 
         let id= DBStore::get_key();
         println!("{id}");

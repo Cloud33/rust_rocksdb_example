@@ -2,7 +2,7 @@
 use rocksdb::{DB,ColumnFamilyDescriptor,Options,ReadOptions,WriteOptions,BlockBasedIndexType, BlockBasedOptions,Cache,DBCompressionType,FlushOptions,Error};
 use chrono::{Local, prelude::*};
 use crate::utils::snowflake::ProcessUniqueId;
-use std::{sync::atomic::{AtomicUsize,Ordering}, thread::sleep};
+use std::{sync::{atomic::{AtomicUsize,Ordering}, Arc}, thread::sleep};
 
 //
 //https://doc.rust-lang.org/stable/std/mem/struct.ManuallyDrop.html
@@ -38,11 +38,11 @@ static ID_PERFIX_STPE:AtomicUsize = AtomicUsize::new(0);
 pub static ID_PERFIX:AtomicUsize = AtomicUsize::new(0);
 
 pub struct DBStore {
-    pub db: DB,
-    user_write_opts: WriteOptions,
-    write_opts: WriteOptions,
-    sync_write_opts: WriteOptions,
-    read_opts: ReadOptions,
+    pub db: Arc<DB>,
+    user_write_opts: Arc<WriteOptions>,
+    write_opts: Arc<WriteOptions>,
+    pub sync_write_opts: Arc<WriteOptions>,
+    read_opts: Arc<ReadOptions>,
 }
 
 
@@ -68,7 +68,11 @@ impl DBStore {
         let db_opts = generate_options();
         let db = DB::open_cf_descriptors(&db_opts, path, vec![cf1,cf2,cf3]).unwrap();
         println!("db open end");
-        Self { db: db,user_write_opts:user_write_opts,write_opts:write_opts, sync_write_opts:sync_write_opts,read_opts:read_opts}
+        Self { db: Arc::new(db),
+            user_write_opts:Arc::new(user_write_opts),
+            write_opts:Arc::new(write_opts), 
+            sync_write_opts:Arc::new(sync_write_opts),
+            read_opts:Arc::new(read_opts),}
     }
     // 初始化
     pub fn init(&self){
@@ -84,11 +88,12 @@ impl DBStore {
     pub fn get_key() -> String {
         format!("{}_{}",ID_PERFIX.load(Ordering::Relaxed),ProcessUniqueId::new())
     }
-   
+
     fn handle_id(&self){
-        let config_cf = self.db.cf_handle(CONFIG_CF).unwrap();
+        let db_read = self.db.clone();
+        let config_cf = db_read.cf_handle(CONFIG_CF).unwrap();
         let yy = Local::now().format("%Y%m%d").to_string().parse::<usize>().unwrap();
-        let value = self.db.get_pinned_cf(&config_cf,ID_KEY)
+        let value = db_read.get_pinned_cf(&config_cf,ID_KEY)
         .map(|x| x.map(|v| rmp_serde::from_slice::<IdValue>(&v.as_ref().to_vec()).unwrap())).unwrap();
         // let value = match value {
         //     Ok(value) => value,
@@ -109,46 +114,16 @@ impl DBStore {
         }
         println!("id value:  {:?}", value);
 
-        self.db.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&value).unwrap(),&self.sync_write_opts).unwrap();
+        db_read.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&value).unwrap(),&self.sync_write_opts).unwrap();
         //设置值
         ID_PERFIX_YY.store(value.yy,Ordering::Relaxed);
         ID_PERFIX_STPE.store(value.step,Ordering::Relaxed);
         let perfix = get_id_perfix();
         ID_PERFIX.store(perfix,Ordering::Relaxed);
-
-
-        
+        id_refresh(self.db.clone(),self.sync_write_opts.clone());
     }
 
-    fn id_refresh(db : DB,sync_write_opts: &WriteOptions){
-        let  rt = tokio::runtime::Runtime::new().unwrap();
-        rt.spawn(async move {
-            loop {
-                let current_date = Local::now();
-                println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
-                let future_date= current_date + chrono::Duration::days(1);
-                let end_time =Local.ymd(future_date.year(), future_date.month(), future_date.day()).and_hms_milli(0, 0, 0, 0);
-                println!("end_time:{}",end_time.format("%Y-%m-%d %H:%M:%S"));
-                let duration  = end_time - current_date;
-                println!("duration:{}",duration.num_seconds());
-                let current_date = current_date+ duration;
-                println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
-                drop(current_date);
-                drop(future_date);
-                tokio::time::sleep(duration.to_std().unwrap());
-                // 开始刷新
-                let yy = ID_PERFIX_YY.load(Ordering::Relaxed);
-                let id_value = IdValue { yy: yy+1, step: 0};
-                let config_cf = db.cf_handle(CONFIG_CF).unwrap();
-                //db.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&id_value).unwrap(),sync_write_opts).unwrap();
-                ID_PERFIX_YY.store(id_value.yy,Ordering::Relaxed);
-                let perfix = get_id_perfix();
-                ID_PERFIX.store(perfix,Ordering::Relaxed);
-            }
-        });
-        rt.handle();
-        sleep(std::time::Duration::from_secs(1));
-    }
+    
 }
 
 impl Drop for DBStore {
@@ -156,6 +131,37 @@ impl Drop for DBStore {
         println!("closing DB at {}", self.db.path().display());
     }
 }
+
+pub fn id_refresh(db : Arc<DB>,sync_write_opts: Arc<WriteOptions>){
+    let  rt = tokio::runtime::Runtime::new().unwrap();
+    rt.spawn(async move {
+        loop {
+            let current_date = Local::now();
+            println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
+            let future_date= current_date + chrono::Duration::days(1);
+            let end_time =Local.ymd(future_date.year(), future_date.month(), future_date.day()).and_hms_milli(0, 0, 0, 0);
+            println!("end_time:{}",end_time.format("%Y-%m-%d %H:%M:%S"));
+            let duration  = end_time - current_date;
+            println!("duration:{}",duration.num_seconds());
+            let current_date = current_date+ duration;
+            println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
+            drop(current_date);
+            drop(future_date);
+            tokio::time::sleep(duration.to_std().unwrap()).await;
+            // 开始刷新
+            let yy = ID_PERFIX_YY.load(Ordering::Relaxed);
+            let id_value = IdValue { yy: yy+1, step: 0};
+            let config_cf = db.cf_handle(CONFIG_CF).unwrap();
+            db.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&id_value).unwrap(),&sync_write_opts).unwrap();
+            ID_PERFIX_YY.store(id_value.yy,Ordering::Relaxed);
+            let perfix = get_id_perfix();
+            ID_PERFIX.store(perfix,Ordering::Relaxed);
+        }
+    });
+    rt.handle();
+    sleep(std::time::Duration::from_secs(1));
+}
+
 fn get_id_perfix() -> usize {
     let id_value = IdValue { yy:ID_PERFIX_YY.load(Ordering::Relaxed),step:ID_PERFIX_STPE.load(Ordering::Relaxed)};
     let perfix = format!("{}",id_value);
