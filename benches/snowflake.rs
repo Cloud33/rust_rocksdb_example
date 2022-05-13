@@ -9,12 +9,13 @@ use rust_rocksdb_example::utils::snowflake::ProcessUniqueId;
 
 use std::sync::mpsc::channel;
 
+//1 ns/iter
 fn bencher(bench: &mut Bencher) {
     bench.iter(|| {
         ProcessUniqueId::new();
     })
 }
-
+//10,644 ns/iter  4000  2.661 ns/iter
 fn bencher_threaded(bench: &mut Bencher) {
     let pool = ThreadPool::new(4);
     bench.iter(|| {

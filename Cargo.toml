@@ -12,11 +12,12 @@ tokio = { version = "1", features = ["full"] }
 once_cell = "*"
 serde = { version = "1.0.136", features = ["derive"] }
 rmp-serde = "1.1.0"
+uuid = { version = "1.0.0", features =[ "v4", "fast-rng","macro-diagnostics",]}
 
 [dev-dependencies]
 bencher = "*"
 threadpool = "1"
 
 [[bench]]
-name = "snowflake"
+name = "id"
 harness = false

@@ -6,7 +6,7 @@ extern crate rust_rocksdb_example;
 use bencher::{benchmark_group, benchmark_main, Bencher};
 use rust_rocksdb_example::utils::id::*;
 
-
+//17 ns/ite
 fn bencher_IdInstance(bench: &mut Bencher) {
     let options = IdGeneratorOptions::new().machine_id(1).node_id(1);
     let _ = IdInstance::init(options);
@@ -14,7 +14,7 @@ fn bencher_IdInstance(bench: &mut Bencher) {
         IdInstance::next_id();
     })
 }
-
+//39 ns/iter
 fn bencher_IdVecInstance(bench: &mut Bencher) {
     let options = vec![
             IdGeneratorOptions::new().machine_id(1).node_id(1),
