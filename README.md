@@ -31,3 +31,4 @@ https://crates.io/crates/rs-snowflake
 https://www.cnblogs.com/yjmyzz/p/15586087.html
 https://github.com/paritytech/parity-common/blob/master/kvdb-rocksdb/src/lib.rs
 https://github.com/exonum/exonum/blob/master/components/merkledb/src/backends/rocksdb.rs#L103
+https://github.com/tyrchen/simple-kv

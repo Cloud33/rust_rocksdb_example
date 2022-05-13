@@ -4,6 +4,7 @@ use rocksdb::{Direction, IteratorMode, Options, ReadOptions, DB};
 use rust_rocksdb_example::storage::rocksdb::{DBStore, id_refresh};
 use serde::{Deserialize, Serialize};
 
+
 fn main() {
     let serverid = 1;
     let path = "_path_for_rocksdb_storage_with_cfs";
@@ -12,22 +13,43 @@ fn main() {
     dbstore.init();
     {
         let db = dbstore.db.clone();
-
+        let cf2 = db.cf_handle("cf2").unwrap();
+        db.put_cf(&cf2, b"test", "test111").unwrap();
         let id= DBStore::get_key();
         println!("{id}");
         let id= DBStore::get_key();
         println!("{id}");
         let id= DBStore::get_key();
         println!("{id}");
-        let id= DBStore::get_key();
-        println!("{id}");
-        let id= DBStore::get_key();
-        println!("{id}");
-        let id= DBStore::get_key();
-        println!("{id}");
-        let id= DBStore::get_key();
-        println!("{id}");
-       
+        let mut rt = tokio::runtime::Runtime::new().unwrap();
+        let db1 = dbstore.db.clone();
+        let otps1 = dbstore.read_opts.clone();
+        rt.block_on(async {
+            println!("tokio started");
+            let mut tasks = Vec::new();
+            let time = tokio::time::Instant::now();
+            for i in 0..100 {
+                let db2 = db1.clone();
+                let otps2= otps1.clone();
+                let i = i;
+                let task= tokio::spawn(async move {
+                    let cf= db2.cf_handle("cf2").unwrap();
+                    let _= db2.get_cf_opt(&cf,b"test",&otps2).unwrap();
+                    // let text = String::from_utf8(value.unwrap()).unwrap();
+                    // println!("{} value={}",i,text);
+                });
+                tasks.push(task);
+            }
+            for task in tasks{
+                task.await.unwrap();
+            }
+            //tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+            //10000  54ms
+            //1000 6ms
+            //100 1ms
+            println!("tokio end 耗时 {}",time.elapsed().as_millis());
+        });
+        
         //测试多线程Id生成
 
         //    let  rt = tokio::runtime::Runtime::new().unwrap();

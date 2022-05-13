@@ -3,6 +3,8 @@ use rocksdb::{DB,ColumnFamilyDescriptor,Options,ReadOptions,WriteOptions,BlockBa
 use chrono::{Local, prelude::*};
 use crate::utils::snowflake::ProcessUniqueId;
 use std::{sync::{atomic::{AtomicUsize,Ordering}, Arc}, thread::sleep};
+use async_trait::async_trait;
+use super::Storage;
 
 //
 //https://doc.rust-lang.org/stable/std/mem/struct.ManuallyDrop.html
@@ -39,10 +41,10 @@ pub static ID_PERFIX:AtomicUsize = AtomicUsize::new(0);
 
 pub struct DBStore {
     pub db: Arc<DB>,
-    user_write_opts: Arc<WriteOptions>,
-    write_opts: Arc<WriteOptions>,
+    pub user_write_opts: Arc<WriteOptions>,
+    pub write_opts: Arc<WriteOptions>,
     pub sync_write_opts: Arc<WriteOptions>,
-    read_opts: Arc<ReadOptions>,
+    pub read_opts: Arc<ReadOptions>,
 }
 
 
@@ -131,6 +133,21 @@ impl Drop for DBStore {
         println!("closing DB at {}", self.db.path().display());
     }
 }
+
+#[async_trait]
+impl Storage for DBStore {
+    async fn get_key(&self,table: &str,key : &str) -> String {
+        todo!()
+        // let _self = self;
+        // let task = tokio::task::spawn(async move {
+        //     let cf = _self.db.cf_handle(table).unwrap();
+        //     let value= _self.db.get_cf_opt(&cf,key,&_self.read_opts).unwrap();
+        //     String::from_utf8(value.unwrap()).unwrap()
+        // });
+        // task.await.unwrap()
+    }
+}
+
 
 pub fn id_refresh(db : Arc<DB>,sync_write_opts: Arc<WriteOptions>){
     let  rt = tokio::runtime::Runtime::new().unwrap();
