@@ -34,10 +34,12 @@ const  ID_KEY: &[u8] = b"id";
 // /// The default memory budget in MiB.
 // const DB_DEFAULT_MEMORY_BUDGET_MB: usize = 512;
 // //pub struct 
-//id perfix
+/// id 前缀 年份 yyyy
 static ID_PERFIX_YY:AtomicUsize = AtomicUsize::new(0);
-static ID_PERFIX_STPE:AtomicUsize = AtomicUsize::new(0);
-pub static ID_PERFIX:AtomicUsize = AtomicUsize::new(0);
+/// id 前缀 重启次数  1~100
+static ID_PERFIX_STEP:AtomicUsize = AtomicUsize::new(0);
+/// id 前缀 字面值
+static ID_PERFIX:AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone)]
 pub struct RocksDB {
@@ -79,7 +81,7 @@ impl RocksDB  {
     }
     // 初始化
     pub fn init(&self){
-        self.handle_id()
+        self.id_handle()
     }
 
     pub fn flush(&self) -> Result<(), Error>{
@@ -91,25 +93,25 @@ impl RocksDB  {
     pub fn get_key() -> String {
         format!("{}_{}",ID_PERFIX.load(Ordering::Relaxed),ProcessUniqueId::new())
     }
-
-    fn handle_id(&self){
-        let db_read = self.db.clone();
-        let config_cf = db_read.cf_handle(CONFIG_CF).unwrap();
+    // id处理
+    fn id_handle(&self){
+        // 获取配置表引用
+        let config_cf = self.db.cf_handle(CONFIG_CF).unwrap();
+        //获取当前系统日期 yyyyMMdd
         let yy = Local::now().format("%Y%m%d").to_string().parse::<usize>().unwrap();
-        let value = db_read.get_pinned_cf(&config_cf,ID_KEY)
+        //获取配置表中Id的值
+        let value = self.db.get_pinned_cf(&config_cf,ID_KEY)
         .map(|x| x.map(|v| rmp_serde::from_slice::<IdValue>(&v.as_ref().to_vec()).unwrap())).unwrap();
-        // let value = match value {
-        //     Ok(value) => value,
-        //     Err(err) => IdValue { yy: yy, step: 0 }
-        // };
-
+      
         let value = match value {
             Some(mut v) => {
+                //如果有值，判断是否是当前日期，如果是，step+1 代表今天是重启过
                 if v.yy == yy {
                     println!("get id value: {:?}",v);
                     v.step = v.step + 1;
                 }
                 else{
+                    //如果不是，设置等于今天日期，step = 0
                     v.yy = yy;
                     v.step = 0;
                 }
@@ -117,22 +119,76 @@ impl RocksDB  {
             },
             None => IdValue { yy: yy, step: 0},
         };
-        //println!("{:?}", value);
+        //如果step 大于 99，代表今天已经重启100以上，不能再次启动
         if value.step > 99{
             print!("The number of restarts in the current day is greater than 100 and cannot be started");
         }
         println!("id value:  {:?}", value);
-
-        db_read.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&value).unwrap(),&self.sync_write_opts).unwrap();
-        //设置值
-        ID_PERFIX_YY.store(value.yy,Ordering::Relaxed);
-        ID_PERFIX_STPE.store(value.step,Ordering::Relaxed);
+        //更新Id值
+        self.db.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&value).unwrap(),&self.sync_write_opts).unwrap();
+        //设置运行时的yy
+        ID_PERFIX_YY.store(value.yy,Ordering::Relaxed); //Relaxed够了，不需要非常严格
+        //设置运行时的step
+        ID_PERFIX_STEP.store(value.step,Ordering::Relaxed);//Relaxed够了，不需要非常严格
+        //设置运行时字面值
         let perfix = get_id_perfix();
         ID_PERFIX.store(perfix,Ordering::Relaxed);
-        id_refresh(self.db.clone(),self.sync_write_opts.clone());
+        //启动Id刷新服务
+        self.id_refresh();
     }
-
-    
+    // id 刷新服务
+    fn id_refresh(&self){
+        let db = self.db.clone();
+        let sync_write_opts = self.sync_write_opts.clone();
+        let  rt = tokio::runtime::Runtime::new().unwrap();
+        rt.spawn(async move {
+            loop {
+                //获取当前时间
+                let current_date = Local::now();
+                println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
+                //获取当前时间+1天 明天
+                let future_date= current_date + chrono::Duration::days(1);
+                //获取 明天零时
+                let end_time =Local.ymd(future_date.year(), future_date.month(), future_date.day()).and_hms_milli(0, 0, 0, 0);
+                println!("end_time:{}",end_time.format("%Y-%m-%d %H:%M:%S"));
+                //获取当前时间到明天零时的时间差
+                let duration  = end_time - current_date;
+                println!("duration:{}",duration.num_seconds());
+                let current_date = current_date+ duration;
+                println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
+                //回收没有使用的值
+                drop(current_date);
+                drop(future_date);
+                //等待明天零时，任务被唤醒
+                tokio::time::sleep(duration.to_std().unwrap()).await;
+                // 开始执行刷新操作
+                // 获取运行时年份
+                let yy = ID_PERFIX_YY.load(Ordering::Relaxed);
+                //获取运行时 重启次数
+                let step = ID_PERFIX_STEP.load(Ordering::Relaxed);
+                let config_cf = db.cf_handle(CONFIG_CF).unwrap();
+                
+                let value = db.get_pinned_cf(&config_cf,ID_KEY)
+                .map(|x| x.map(|v| 
+                    rmp_serde::from_slice::<IdValue>(&v.as_ref().to_vec()).unwrap())).unwrap().unwrap();
+                //检查数据是否正确
+                assert_eq!(yy,value.yy);
+                assert_eq!(step,value.step);
+                //设置新的数据
+                let id_value = IdValue { yy: yy+1, step: 0};
+                //更新到存储
+                db.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&id_value).unwrap(),&sync_write_opts).unwrap();
+                //更新运行时
+                ID_PERFIX_YY.store(id_value.yy,Ordering::Relaxed);
+                ID_PERFIX_STEP.store(id_value.step,Ordering::Relaxed);
+                //更新计算值
+                let perfix = get_id_perfix();
+                ID_PERFIX.store(perfix,Ordering::Relaxed);
+            }
+        });
+        rt.handle();
+        //sleep(std::time::Duration::from_secs(1));
+    }
 }
 
 impl Drop for RocksDB  {
@@ -158,43 +214,13 @@ impl Storage for RocksDB  {
     }
 }
 
-
-pub fn id_refresh(db : Arc<DB>,sync_write_opts: Arc<WriteOptions>){
-    let  rt = tokio::runtime::Runtime::new().unwrap();
-    rt.spawn(async move {
-        loop {
-            let current_date = Local::now();
-            println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
-            let future_date= current_date + chrono::Duration::days(1);
-            let end_time =Local.ymd(future_date.year(), future_date.month(), future_date.day()).and_hms_milli(0, 0, 0, 0);
-            println!("end_time:{}",end_time.format("%Y-%m-%d %H:%M:%S"));
-            let duration  = end_time - current_date;
-            println!("duration:{}",duration.num_seconds());
-            let current_date = current_date+ duration;
-            println!("current_date:{}",current_date.format("%Y-%m-%d %H:%M:%S"));
-            drop(current_date);
-            drop(future_date);
-            tokio::time::sleep(duration.to_std().unwrap()).await;
-            // 开始刷新
-            let yy = ID_PERFIX_YY.load(Ordering::Relaxed);
-            let id_value = IdValue { yy: yy+1, step: 0};
-            let config_cf = db.cf_handle(CONFIG_CF).unwrap();
-            db.put_cf_opt(&config_cf, ID_KEY, rmp_serde::to_vec(&id_value).unwrap(),&sync_write_opts).unwrap();
-            ID_PERFIX_YY.store(id_value.yy,Ordering::Relaxed);
-            let perfix = get_id_perfix();
-            ID_PERFIX.store(perfix,Ordering::Relaxed);
-        }
-    });
-    rt.handle();
-    sleep(std::time::Duration::from_secs(1));
-}
-
+// 获取Id前缀
 fn get_id_perfix() -> usize {
-    let id_value = IdValue { yy:ID_PERFIX_YY.load(Ordering::Relaxed),step:ID_PERFIX_STPE.load(Ordering::Relaxed)};
+    let id_value = IdValue { yy:ID_PERFIX_YY.load(Ordering::Relaxed),step:ID_PERFIX_STEP.load(Ordering::Relaxed)};
     let perfix = format!("{}",id_value);
     perfix.parse::<usize>().unwrap()
 }
-
+// 获取DB配置
 fn generate_options() -> Options{
     let mut db_opts = Options::default();
     db_opts.create_missing_column_families(true); //如果为 true，则将创建打开数据库时不存在的任何列系列。
@@ -207,6 +233,7 @@ fn generate_options() -> Options{
     db_opts.set_max_background_jobs(4); //设置并发后台作业（压缩和刷新）的最大数量。
     db_opts
 }
+//获取表配置
 fn generate_cf_options(block_opts: &BlockBasedOptions) -> Options {
     let mut cf_opts = Options::default();
     cf_opts.set_level_compaction_dynamic_level_bytes(true); //允许 RocksDB 为级别选择动态字节基数。打开此功能后，RocksDB 将自动调整每个级别的最大字节数
@@ -222,6 +249,7 @@ fn generate_cf_options(block_opts: &BlockBasedOptions) -> Options {
     cf_opts.set_max_write_buffer_number(4); // 设置内存中建立的最大写入缓冲区数。默认值和最小值为 2，因此当将 1 个写入缓冲区刷新到存储时，新写入操作可以继续写入另一个写入缓冲区。如果max_write_buffer_number > 3，则写入速度将减慢到options.delayed_write_rate如果我们写入允许的最后一个写入缓冲区。
     cf_opts
 }
+// 获取块的配置
 fn generate_block_based_options() -> BlockBasedOptions{
     let mut block_opts = BlockBasedOptions::default();
     block_opts.set_format_version(5);  //使用最新的数据版本
@@ -239,13 +267,13 @@ fn generate_block_based_options() -> BlockBasedOptions{
     block_opts.set_hybrid_ribbon_filter(10.0,2);  // 设置混合功能区筛选器策略以减少磁盘读取。在给定级别之前使用“绽放”滤镜，对所有其他级别使用“功能区”滤镜。这会将功能区筛选器节省的内存与布隆筛选器的较低 CPU 使用率相结合。
     block_opts
 }
-
+//获取读取配置
 fn generate_read_options() -> ReadOptions{
     let mut read_opts = ReadOptions::default();
     read_opts.set_verify_checksums(false);
     read_opts
 }
-
+//获取flush配置
 fn generate_flush_options() -> FlushOptions{
     let mut flush_opts = FlushOptions::default();
     flush_opts.set_wait(true);
