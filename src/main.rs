@@ -1,7 +1,7 @@
 use chrono::Local;
 use rocksdb::{Direction, IteratorMode, Options, ReadOptions, DB};
 
-use rust_rocksdb_example::storage::rocksdb::{DBStore, id_refresh};
+use rust_rocksdb_example::storage::{rocksdb::RocksDB,Storage,SupportedDatabase};
 use serde::{Deserialize, Serialize};
 
 
@@ -9,17 +9,17 @@ fn main() {
     let serverid = 1;
     let path = "_path_for_rocksdb_storage_with_cfs";
 
-    let dbstore = DBStore::open(path);
+    let dbstore = RocksDB::open(path);
     dbstore.init();
     {
         let db = dbstore.db.clone();
         let cf2 = db.cf_handle("cf2").unwrap();
         db.put_cf(&cf2, b"test", "test111").unwrap();
-        let id= DBStore::get_key();
+        let id= RocksDB::get_key();
         println!("{id}");
-        let id= DBStore::get_key();
+        let id= RocksDB::get_key();
         println!("{id}");
-        let id= DBStore::get_key();
+        let id= RocksDB::get_key();
         println!("{id}");
         let mut rt = tokio::runtime::Runtime::new().unwrap();
         let db1 = dbstore.db.clone();
@@ -48,7 +48,15 @@ fn main() {
             //1000 6ms
             //100 1ms
             println!("tokio end 耗时 {}",time.elapsed().as_millis());
+            //为什么不行?
+            //let dbs:SupportedDatabase = SupportedDatabase::RocksDB(dbstore.clone());
+            //let value = spawn_readers(&dbs.clone()).await;
+
+            let value = spawn_readers(&dbstore.clone()).await;
+            println!("value : {}",value);
         });
+
+        
         
         //测试多线程Id生成
 
@@ -147,4 +155,8 @@ pub fn get_end_prefix(prefix: &[u8]) -> Option<Vec<u8>> {
     } else {
         None
     }
+}
+
+async fn spawn_readers (db: &impl Storage) -> String {
+    db.get_key("cf2","test").await
 }

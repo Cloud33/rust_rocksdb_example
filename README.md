@@ -32,3 +32,8 @@ https://www.cnblogs.com/yjmyzz/p/15586087.html
 https://github.com/paritytech/parity-common/blob/master/kvdb-rocksdb/src/lib.rs
 https://github.com/exonum/exonum/blob/master/components/merkledb/src/backends/rocksdb.rs#L103
 https://github.com/tyrchen/simple-kv
+
+
+异步:
+https://github.com/andrey58abram/penumbra/blob/main/storage/src/storage.rs
+https://github.com/goniz/rocksdb-experiment/blob/main/src/rocksdb_impl.rs 简单

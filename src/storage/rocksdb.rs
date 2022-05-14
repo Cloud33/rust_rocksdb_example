@@ -39,7 +39,8 @@ static ID_PERFIX_YY:AtomicUsize = AtomicUsize::new(0);
 static ID_PERFIX_STPE:AtomicUsize = AtomicUsize::new(0);
 pub static ID_PERFIX:AtomicUsize = AtomicUsize::new(0);
 
-pub struct DBStore {
+#[derive(Clone)]
+pub struct RocksDB {
     pub db: Arc<DB>,
     pub user_write_opts: Arc<WriteOptions>,
     pub write_opts: Arc<WriteOptions>,
@@ -49,7 +50,7 @@ pub struct DBStore {
 
 
 
-impl DBStore {
+impl RocksDB  {
     // 打开数据库
     pub fn open(path: &str) ->Self{
         let block_opts = generate_block_based_options();
@@ -104,8 +105,14 @@ impl DBStore {
 
         let value = match value {
             Some(mut v) => {
-                println!("get id value: {:?}",v);
-                v.step = v.step + 1;
+                if v.yy == yy {
+                    println!("get id value: {:?}",v);
+                    v.step = v.step + 1;
+                }
+                else{
+                    v.yy = yy;
+                    v.step = 0;
+                }
                 v
             },
             None => IdValue { yy: yy, step: 0},
@@ -128,23 +135,26 @@ impl DBStore {
     
 }
 
-impl Drop for DBStore {
+impl Drop for RocksDB  {
     fn drop(&mut self) {
         println!("closing DB at {}", self.db.path().display());
     }
 }
 
 #[async_trait]
-impl Storage for DBStore {
-    async fn get_key(&self,table: &str,key : &str) -> String {
-        todo!()
-        // let _self = self;
-        // let task = tokio::task::spawn(async move {
-        //     let cf = _self.db.cf_handle(table).unwrap();
-        //     let value= _self.db.get_cf_opt(&cf,key,&_self.read_opts).unwrap();
-        //     String::from_utf8(value.unwrap()).unwrap()
-        // });
-        // task.await.unwrap()
+impl Storage for RocksDB  {
+    async fn get_key(&self, table: &str, key : &str) -> String{
+        //todo!()
+        let db = self.db.clone();
+        let read_opts=self.read_opts.clone();
+        let table = table.to_owned();
+        let key = key.to_owned();
+        let task = tokio::task::spawn(async move {
+            let cf = db.cf_handle(table.as_str()).unwrap();
+            let value= db.get_cf_opt(&cf,key,&read_opts).unwrap();
+            String::from_utf8(value.unwrap()).unwrap()
+        });
+        task.await.unwrap()
     }
 }
 
