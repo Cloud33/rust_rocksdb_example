@@ -233,7 +233,7 @@ fn generate_options() -> Options{
     db_opts.set_max_background_jobs(4); //设置并发后台作业（压缩和刷新）的最大数量。
     db_opts
 }
-//获取表配置
+//获取表配置 ,只有运行时表需要这样的配置，归档不需要
 fn generate_cf_options(block_opts: &BlockBasedOptions) -> Options {
     let mut cf_opts = Options::default();
     cf_opts.set_level_compaction_dynamic_level_bytes(true); //允许 RocksDB 为级别选择动态字节基数。打开此功能后，RocksDB 将自动调整每个级别的最大字节数
