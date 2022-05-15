@@ -52,6 +52,7 @@ fn main() {
             //let dbs:SupportedDatabase = SupportedDatabase::RocksDB(dbstore.clone());
             //let value = spawn_readers(&dbs.clone()).await;
             for i in 0..10{
+                // 使用引用，而不是拷贝 -> &dbstore.clone()
                 let value = spawn_readers(&dbstore).await;
                 println!("{} value : {}",i,value);
             }
