@@ -199,13 +199,13 @@ impl Drop for RocksDB  {
 
 #[async_trait]
 impl Storage for RocksDB  {
-    async fn get_key(&self, table: &str, key : &str) -> String{
+    async fn get_key(&self, table: &str, key : &str) -> String {
         //todo!()
         let db = self.db.clone();
         let read_opts=self.read_opts.clone();
         let table = table.to_owned();
         let key = key.to_owned();
-        let task = tokio::task::spawn(async move {
+        let task = tokio::task::spawn_blocking(move || {
             let cf = db.cf_handle(table.as_str()).unwrap();
             let value= db.get_cf_opt(&cf,key,&read_opts).unwrap();
             String::from_utf8(value.unwrap()).unwrap()

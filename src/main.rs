@@ -51,9 +51,12 @@ fn main() {
             //为什么不行?
             //let dbs:SupportedDatabase = SupportedDatabase::RocksDB(dbstore.clone());
             //let value = spawn_readers(&dbs.clone()).await;
-
-            let value = spawn_readers(&dbstore.clone()).await;
-            println!("value : {}",value);
+            for i in 0..10{
+                let value = spawn_readers(&dbstore).await;
+                println!("{} value : {}",i,value);
+            }
+            
+           
         });
 
         
@@ -138,8 +141,10 @@ fn main() {
         db.drop_cf("cf1").unwrap();
         db.drop_cf("cf2").unwrap();
     }
+    println!("end");
     dbstore.flush();
     drop(dbstore);
+    println!("drop end");
     //清除所有数据
     //let _ = DB::destroy(&Options::default(), path);
 }
